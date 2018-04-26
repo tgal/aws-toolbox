@@ -1,0 +1,63 @@
+#!/usr/bin/python
+
+import boto3
+import argparse
+import string
+
+POLICY_DOC_TEMPLATE = string.Template('''{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListAllMyBuckets",
+      "Resource": "arn:aws:s3:::*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+       ],
+      "Resource": "arn:aws:s3:::${BUCKET}"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::${BUCKET}/*"
+    }
+  ]
+}''')
+
+ap = argparse.ArgumentParser()
+ap.add_argument('username', help='the IAM username to be created')
+ap.add_argument('bucket', help='the S3 bucket included in the permissions')
+args = ap.parse_args()
+
+iam = boto3.resource('iam')
+
+try:
+  user = filter(lambda x: x.name == args.username, list(iam.users.all()))[0]
+  if raw_input('user "%s" exists. Carry on?' % args.username) != 'y':
+    exit()
+except IndexError:
+  user = iam.create_user(UserName=args.username)
+
+policy_name = 'access-to-bucket-%s' % args.bucket
+
+try:
+  policy = filter(lambda x: x.policy_name == policy_name, list(iam.policies.filter(Scope='Local')))[0]
+  if raw_input('policy "%s" exists. Carry on?' % policy_name) != 'y':
+    exit()
+except IndexError:
+  policy_doc = POLICY_DOC_TEMPLATE.substitute({'BUCKET': args.bucket})
+  policy = iam.create_policy(PolicyName=policy_name, PolicyDocument=policy_doc)
+
+user.attach_policy(PolicyArn=policy.arn)
+
+if raw_input('generate access key pair?') == 'y':
+  akp = user.create_access_key_pair()
+  print 'aws_access_key_id = %s\naws_secret_access_key = %s' % (akp.access_key_id, akp.secret_access_key)
