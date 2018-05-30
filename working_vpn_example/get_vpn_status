@@ -1,0 +1,53 @@
+#!/usr/bin/python
+
+import boto3
+from pprint import pprint
+import xmltodict
+
+VPN_NAME = 'TEST'
+
+ec2 = boto3.client('ec2')
+
+def get_tag(tags, key):
+  val = None
+  for t in tags:
+    if t['Key'] == key:
+      val = t['Value']
+      break
+  return val
+
+def print_config(raw_xml):
+  conf = xmltodict.parse(raw_conf)
+  print '-' * 160
+  for t in conf['vpn_connection']['ipsec_tunnel']:
+    psk = t['ike']['pre_shared_key']
+    print 'PSK: %s' % psk
+    print 'vpn gateway:'
+    vgw = t['vpn_gateway']
+    print '  outside address: %s' % vgw['tunnel_outside_address']['ip_address']
+    print '  inside address:  %s/%s' % (vgw['tunnel_inside_address']['ip_address'], vgw['tunnel_inside_address']['network_cidr'])
+    print 'customer gateway:'
+    cgw = t['customer_gateway']
+    print '  outside address: %s' % cgw['tunnel_outside_address']['ip_address']
+    print '  inside address:  %s/%s' % (cgw['tunnel_inside_address']['ip_address'], cgw['tunnel_inside_address']['network_cidr'])
+    print '-' * 160
+
+
+for c in ec2.describe_vpn_connections()['VpnConnections']:
+  name = get_tag(c['Tags'], 'Name')
+  if name != VPN_NAME:
+    continue
+  if c['State'] != 'available':
+    continue
+  raw_conf = c['CustomerGatewayConfiguration']
+  print_config(raw_conf)
+  tm = c['VgwTelemetry']
+  for conn in tm:
+    ts = conn['LastStatusChange']
+    ip = conn['OutsideIpAddress']
+    st = conn['Status']
+    msg = conn['StatusMessage']
+    cnt = conn['AcceptedRouteCount']
+    print '%-15s   %s   %-4s   %s   "%s"' % (ip, ts.strftime('%Y-%m-%d %H:%M:%S'), st, cnt, msg)
+  #pprint(tm)
+
